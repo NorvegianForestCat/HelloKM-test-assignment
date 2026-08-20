@@ -29,18 +29,16 @@ static const char hello_message[] = "Hello from kernel module\n";
 static int set_filepath(const char *path, const struct kernel_param *kp)
 {
     int ret;
-    char checked_path[PATH_MAX];
 
-    ret = strscpy(checked_path, path, sizeof(checked_path));
+    mutex_lock(&params_lock);
+    ret = strscpy(filepath, path, sizeof(filepath));
+    mutex_unlock(&params_lock);
+    
     if (ret < 0) {
         printk(KERN_ERR "hello_module: strscpy failed\n");
         return ret;
     }
 
-    mutex_lock(&params_lock);
-    ret = strscpy(filepath, checked_path, sizeof(filepath));
-    mutex_unlock(&params_lock);
-    
     return 0;
 }
 
@@ -93,6 +91,7 @@ static void write_hello_msg_hdlr(struct work_struct *work)
     loff_t pos = 0;
     ssize_t bytes_written;
     size_t msg_len = sizeof(hello_message) - 1;
+    /*kmalloc used for stack overflow protection*/
     char *path_copy = kmalloc(PATH_MAX, GFP_KERNEL);
 
     if (!path_copy) {
@@ -161,6 +160,7 @@ static int __init hello_module_init(void)
 
 static void __exit hello_module_exit(void)
 {
+    /*destructors waiting for end of timer callback and work handler to prevent oops*/
     del_timer_sync(&hello_timer);
     cancel_work_sync(&work);
     printk(KERN_INFO "hello_module: unloaded\n");
